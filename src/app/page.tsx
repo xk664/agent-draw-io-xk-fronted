@@ -254,7 +254,7 @@ export default function Home() {
                <polyline points="21 15 16 10 5 21"></polyline>
             </svg>
           </div>
-          <h1 className="text-lg font-semibold text-slate-800 tracking-tight">Agent Flow</h1>
+          <h1 className="text-lg font-semibold text-slate-800 tracking-tight">ai + draw.io - @小傅哥</h1>
         </div>
         
         <div className="flex items-center gap-3">
