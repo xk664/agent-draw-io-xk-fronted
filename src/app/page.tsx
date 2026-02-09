@@ -73,6 +73,11 @@ const Icons = {
       <polyline points="2 17 12 22 22 17"></polyline>
       <polyline points="2 12 12 17 22 12"></polyline>
     </svg>
+  ),
+  Loader: ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`animate-spin ${className}`}>
+      <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+    </svg>
   )
 };
 
@@ -447,7 +452,7 @@ export default function Home() {
                     `}
                 >
                     <Icons.Layers className={`w-3.5 h-3.5 ${useHistoryContext ? 'text-indigo-500' : 'text-slate-400'}`} />
-                    历史图稿
+                    携带当前画布
                 </button>
             </div>
             <div className="relative flex items-end gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:bg-white transition-all">
@@ -455,7 +460,7 @@ export default function Home() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={isSending ? "Sending..." : "Ask me anything..."}
+                placeholder={isSending ? "服务端正在思考中，请稍候..." : "输入您的问题..."}
                 disabled={isSending}
                 className="flex-1 px-3 py-2 bg-transparent border-none focus:ring-0 text-sm text-slate-800 placeholder:text-slate-400 resize-none max-h-32 min-h-[44px]"
                 rows={1}
@@ -472,11 +477,13 @@ export default function Home() {
                   }
                 `}
               >
-                <Icons.Send className="w-4 h-4" />
+                {isSending ? <Icons.Loader className="w-4 h-4" /> : <Icons.Send className="w-4 h-4" />}
               </button>
             </div>
             <div className="text-center mt-2">
-                <span className="text-[10px] text-slate-400">AI can make mistakes. Please verify important info.</span>
+                <span className="text-[10px] text-slate-400">
+                  {isSending ? '服务端正在思考处理，暂时无法输入...' : 'AI can make mistakes. Please verify important info.'}
+                </span>
             </div>
           </div>
         </div>
