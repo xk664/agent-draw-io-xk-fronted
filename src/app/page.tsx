@@ -66,6 +66,13 @@ const Icons = {
       <polyline points="16 17 21 12 16 7"></polyline>
       <line x1="21" y1="12" x2="9" y2="12"></line>
     </svg>
+  ),
+  Layers: ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+      <polyline points="2 17 12 22 22 17"></polyline>
+      <polyline points="2 12 12 17 22 12"></polyline>
+    </svg>
   )
 };
 
@@ -90,6 +97,12 @@ export default function Home() {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Context State
+  const [useHistoryContext, setUseHistoryContext] = useState(false);
+  const [lastExportedData, setLastExportedData] = useState<{data: string, timestamp: number} | null>(null);
+  const isExportingForChatRef = useRef(false);
+  const pendingMessageRef = useRef('');
 
   // Agent State
   const [agents, setAgents] = useState<AiAgentConfigResponseDTO[]>([]);
@@ -160,9 +173,7 @@ export default function Home() {
     localStorage.setItem('ai_agent_last_agent', newAgentId);
   };
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || isSending) return;
-    
+  const performSendMessage = async (displayContent: string, apiContent: string) => {
     if (!selectedAgentId) {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
@@ -170,17 +181,14 @@ export default function Home() {
         content: '请先选择一个智能体。',
         timestamp: Date.now()
       }]);
+      setIsSending(false);
       return;
     }
-
-    const userMsgContent = inputValue;
-    setInputValue('');
-    setIsSending(true);
 
     const userMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: userMsgContent,
+      content: displayContent,
       timestamp: Date.now()
     };
     setMessages(prev => [...prev, userMsg]);
@@ -199,7 +207,7 @@ export default function Home() {
         agentId: selectedAgentId,
         userId: currentUser,
         sessionId: currentSessionId,
-        message: userMsgContent
+        message: apiContent
       });
 
       const agentMsg: Message = {
@@ -234,6 +242,43 @@ export default function Home() {
       setIsSending(false);
     }
   };
+
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || isSending) return;
+    
+    const content = inputValue;
+    setInputValue('');
+    setIsSending(true);
+
+    if (useHistoryContext && drawioRef.current) {
+        isExportingForChatRef.current = true;
+        pendingMessageRef.current = content;
+        try {
+            drawioRef.current.exportDiagram({
+                 format: 'xmlsvg'
+             });
+        } catch (e) {
+            console.error("Export failed", e);
+            performSendMessage(content, content);
+        }
+    } else {
+        performSendMessage(content, content);
+    }
+  };
+
+  useEffect(() => {
+    if (!lastExportedData) return;
+    
+    if (isExportingForChatRef.current) {
+        isExportingForChatRef.current = false;
+        const xml = lastExportedData.data;
+        const content = pendingMessageRef.current;
+        const apiContent = `[Context: Current Draw.io XML]\n\`\`\`xml\n${xml}\n\`\`\`\n\n${content}`;
+        performSendMessage(content, apiContent);
+    } else {
+        setImgData(lastExportedData.data);
+    }
+  }, [lastExportedData]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -298,7 +343,7 @@ export default function Home() {
           <div className="flex-1 m-2 rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-white">
             <DrawIoEmbed 
               ref={drawioRef}
-              onExport={(data) => setImgData(data.data)}
+              onExport={(data) => setLastExportedData({ data: data.data, timestamp: Date.now() })}
               urlParameters={{
                 ui: 'atlas', // More modern UI theme for draw.io
                 spin: true,
@@ -389,6 +434,22 @@ export default function Home() {
 
           {/* Input Area */}
           <div className="p-4 bg-white border-t border-slate-100 shrink-0">
+            {/* Context Toolbar */}
+            <div className="flex items-center gap-2 mb-2 px-1">
+                <button
+                    onClick={() => setUseHistoryContext(!useHistoryContext)}
+                    className={`
+                        flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border
+                        ${useHistoryContext 
+                            ? 'bg-indigo-50 text-indigo-600 border-indigo-200' 
+                            : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                        }
+                    `}
+                >
+                    <Icons.Layers className={`w-3.5 h-3.5 ${useHistoryContext ? 'text-indigo-500' : 'text-slate-400'}`} />
+                    历史图稿
+                </button>
+            </div>
             <div className="relative flex items-end gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:bg-white transition-all">
               <textarea
                 value={inputValue}
