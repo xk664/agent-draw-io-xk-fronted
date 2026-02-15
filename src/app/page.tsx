@@ -84,8 +84,28 @@ const Icons = {
       <line x1="12" y1="5" x2="12" y2="19"></line>
       <line x1="5" y1="12" x2="19" y2="12"></line>
     </svg>
+  ),
+  Trash: ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polyline points="3 6 5 6 21 6"></polyline>
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+    </svg>
+  ),
+  MessageSquare: ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+    </svg>
   )
 };
+
+interface Session {
+  id: string;
+  backendSessionId?: string;
+  title: string;
+  messages: Message[];
+  drawIoXml: string | null;
+  lastModified: number;
+}
 
 export default function Home() {
   const router = useRouter();
@@ -113,12 +133,151 @@ export default function Home() {
   const [useHistoryContext, setUseHistoryContext] = useState(false);
   const [lastExportedData, setLastExportedData] = useState<{data: string, timestamp: number} | null>(null);
   const isExportingForChatRef = useRef(false);
+  const isAutosaveRef = useRef(false);
   const pendingMessageRef = useRef('');
+  const [isDrawIoReady, setIsDrawIoReady] = useState(false);
+  const initialLoadDoneRef = useRef(false);
 
   // Agent State
   const [agents, setAgents] = useState<AiAgentConfigResponseDTO[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [sessionId, setSessionId] = useState('');
+
+  // Session Management State
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const currentSessionRef = useRef(currentSessionId);
+
+  // Update ref
+  useEffect(() => {
+    currentSessionRef.current = currentSessionId;
+  }, [currentSessionId]);
+
+  // Handle Initial Load
+  useEffect(() => {
+    if (!initialLoadDoneRef.current && isDrawIoReady && currentSessionId && sessions.length > 0) {
+      const session = sessions.find(s => s.id === currentSessionId);
+      if (session && session.drawIoXml && drawioRef.current) {
+        drawioRef.current.load({ xml: session.drawIoXml });
+      }
+      initialLoadDoneRef.current = true;
+    }
+  }, [isDrawIoReady, currentSessionId, sessions]);
+
+  // Load sessions from localStorage
+  useEffect(() => {
+    const savedSessions = localStorage.getItem('drawio_sessions');
+    if (savedSessions) {
+      try {
+        const parsed = JSON.parse(savedSessions);
+        setSessions(parsed);
+        if (parsed.length > 0) {
+          // Load the most recent session (first one if sorted by lastModified desc)
+          const mostRecent = parsed.sort((a: Session, b: Session) => b.lastModified - a.lastModified)[0];
+          setCurrentSessionId(mostRecent.id);
+          setMessages(mostRecent.messages);
+          // Note: Draw.io XML loading happens after drawioRef is ready or when we switch
+        } else {
+            createNewSession(true);
+        }
+      } catch (e) {
+        console.error('Failed to parse sessions:', e);
+        createNewSession(true);
+      }
+    } else {
+      createNewSession(true);
+    }
+  }, []);
+
+  // Save sessions to localStorage whenever they change
+  useEffect(() => {
+    if (sessions.length > 0) {
+      try {
+        localStorage.setItem('drawio_sessions', JSON.stringify(sessions));
+      } catch (e) {
+        console.error('Failed to save sessions to localStorage:', e);
+      }
+    }
+  }, [sessions]);
+
+  // Update current session messages and backendSessionId when they change
+  useEffect(() => {
+    if (currentSessionId) {
+      setSessions(prev => prev.map(session => {
+        if (session.id === currentSessionId) {
+          return {
+            ...session,
+            messages,
+            backendSessionId: sessionId,
+            // Update title if it's the default "New Chat" and we have a user message
+            title: session.title === 'New Chat' && messages.find(m => m.role === 'user') 
+              ? (messages.find(m => m.role === 'user')?.content.slice(0, 20) || 'New Chat')
+              : session.title
+          };
+        }
+        return session;
+      }));
+    }
+  }, [messages, currentSessionId, sessionId]);
+
+  const createNewSession = (isInitial = false, backendId = '') => {
+    const newSession: Session = {
+      id: Date.now().toString(),
+      backendSessionId: backendId,
+      title: 'New Chat',
+      messages: [{
+        id: Date.now().toString(),
+        role: 'agent',
+        content: '你好！我是你的智能架构助手。请选择一个智能体开始对话。',
+        timestamp: Date.now()
+      }],
+      drawIoXml: null,
+      lastModified: Date.now()
+    };
+
+    setSessions(prev => [newSession, ...prev]);
+    setCurrentSessionId(newSession.id);
+    setMessages(newSession.messages);
+    setSessionId(backendId);
+    
+    if (!isInitial && drawioRef.current) {
+      drawioRef.current.load({ xml: '' }); // Clear diagram
+    }
+  };
+
+  const handleSwitchSession = (targetSessionId: string) => {
+    if (targetSessionId === currentSessionId) return;
+    loadSession(targetSessionId);
+  };
+
+  const loadSession = (targetSessionId: string) => {
+    const session = sessions.find(s => s.id === targetSessionId);
+    if (session) {
+        setCurrentSessionId(targetSessionId);
+        setMessages(session.messages);
+        setSessionId(session.backendSessionId || '');
+        if (drawioRef.current && session.drawIoXml) {
+            drawioRef.current.load({ xml: session.drawIoXml });
+        } else if (drawioRef.current) {
+            drawioRef.current.load({ xml: '' });
+        }
+    }
+  };
+
+  const handleDeleteSession = (e: React.MouseEvent, sessionIdToDelete: string) => {
+    e.stopPropagation();
+    const newSessions = sessions.filter(s => s.id !== sessionIdToDelete);
+    setSessions(newSessions);
+    localStorage.setItem('drawio_sessions', JSON.stringify(newSessions));
+
+    if (currentSessionId === sessionIdToDelete) {
+        if (newSessions.length > 0) {
+            loadSession(newSessions[0].id);
+        } else {
+            createNewSession();
+        }
+    }
+  };
 
   const exportDiagram = () => {
     if (drawioRef.current) {
@@ -184,24 +343,20 @@ export default function Home() {
     localStorage.setItem('ai_agent_last_agent', newAgentId);
   };
 
-  const handleNewChat = async () => {
+  const finalizeNewChat = async () => {
     if (!selectedAgentId || !currentUser) return;
     
     try {
         const res = await agentApi.createSession(selectedAgentId, currentUser);
-        setSessionId(res.data.sessionId);
-        setMessages([
-            {
-                id: Date.now().toString(),
-                role: 'agent',
-                content: '已为您开启新的会话。',
-                timestamp: Date.now()
-            }
-        ]);
+        createNewSession(false, res.data.sessionId);
         setInputValue('');
     } catch (error) {
         console.error('Failed to create new session:', error);
     }
+  };
+
+  const handleNewChat = async () => {
+     finalizeNewChat();
   };
 
   const performSendMessage = async (displayContent: string, apiContent: string) => {
@@ -226,18 +381,26 @@ export default function Home() {
 
     try {
       // 1. Ensure Session
-      let currentSessionId = sessionId;
-      if (!currentSessionId) {
+      let activeBackendSessionId = sessionId;
+      if (!activeBackendSessionId) {
         const sessionRes = await agentApi.createSession(selectedAgentId, currentUser);
-        currentSessionId = sessionRes.data.sessionId;
-        setSessionId(currentSessionId);
+        activeBackendSessionId = sessionRes.data.sessionId;
+        setSessionId(activeBackendSessionId);
       }
+
+      // Update session lastModified
+      setSessions(prev => prev.map(session => {
+        if (session.id === currentSessionId) {
+          return { ...session, lastModified: Date.now() };
+        }
+        return session;
+      }));
 
       // 2. Send Message
       const chatRes = await agentApi.chat({
         agentId: selectedAgentId,
         userId: currentUser,
-        sessionId: currentSessionId,
+        sessionId: activeBackendSessionId,
         message: apiContent
       });
 
@@ -253,7 +416,20 @@ export default function Home() {
         };
         setMessages(prev => [...prev, agentMsg]);
       } else if (type === 'drawio') {
-        if (drawioRef.current) {
+        // Save to session immediately (always update the session that initiated the request)
+        setSessions(prev => prev.map(session => {
+          if (session.id === currentSessionId) {
+            return { 
+              ...session, 
+              drawIoXml: content,
+              lastModified: Date.now() 
+            };
+          }
+          return session;
+        }));
+
+        // Render only if still on the same session
+        if (drawioRef.current && currentSessionId === currentSessionRef.current) {
           try {
             drawioRef.current.load({
               xml: content
@@ -285,12 +461,12 @@ export default function Home() {
     setInputValue('');
     setIsSending(true);
 
-    if (useHistoryContext && drawioRef.current) {
+    if (useHistoryContext && drawioRef.current && isDrawIoReady) {
         isExportingForChatRef.current = true;
         pendingMessageRef.current = content;
         try {
             drawioRef.current.exportDiagram({
-                 format: 'xmlsvg'
+                 format: 'xml' as any
              });
         } catch (e) {
             console.error("Export failed", e);
@@ -310,9 +486,24 @@ export default function Home() {
         const content = pendingMessageRef.current;
         const apiContent = `[Context: Current Draw.io XML]\n\`\`\`xml\n${xml}\n\`\`\`\n\n${content}`;
         performSendMessage(content, apiContent);
-    } else {
-        setImgData(lastExportedData.data);
+        return;
     }
+    
+    // Autosave handling
+    if (isAutosaveRef.current) {
+        isAutosaveRef.current = false;
+        const xml = lastExportedData.data;
+        setSessions(prev => prev.map(s => {
+            if (s.id === currentSessionId) {
+                return { ...s, drawIoXml: xml };
+            }
+            return s;
+        }));
+        return;
+    }
+
+    // Manual Export
+    setImgData(lastExportedData.data);
   }, [lastExportedData]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -378,11 +569,90 @@ export default function Home() {
       
       {/* Main Layout */}
       <div className="flex flex-1 w-full overflow-hidden relative">
+        {/* Sessions Sidebar */}
+        <div className="w-64 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shrink-0 z-30">
+          <div className="h-14 px-4 flex items-center justify-between border-b border-slate-800 shrink-0">
+             <span className="font-medium text-white flex items-center gap-2">
+                <Icons.MessageSquare className="w-4 h-4" />
+                History
+             </span>
+             <button 
+                onClick={handleNewChat}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-all"
+                title="New Chat"
+             >
+                <Icons.Plus className="w-5 h-5" />
+             </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+             {[...sessions].sort((a, b) => b.lastModified - a.lastModified).map(session => (
+                <div 
+                  key={session.id}
+                  onClick={() => handleSwitchSession(session.id)}
+                  className={`
+                    group flex items-center gap-3 px-3 py-3 rounded-lg cursor-pointer transition-all
+                    ${currentSessionId === session.id 
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/20' 
+                      : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                    }
+                  `}
+                >
+                  <div className="flex-1 min-w-0">
+                     <div className={`text-sm font-medium truncate ${currentSessionId === session.id ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>
+                        {session.title}
+                     </div>
+                     <div className="text-[10px] opacity-60 mt-0.5">
+                        {new Date(session.lastModified).toLocaleDateString()} {new Date(session.lastModified).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                     </div>
+                  </div>
+                  <button
+                    onClick={(e) => handleDeleteSession(e, session.id)}
+                    className={`
+                      p-1.5 rounded-md transition-all opacity-0 group-hover:opacity-100
+                      ${currentSessionId === session.id 
+                        ? 'hover:bg-indigo-500 text-indigo-200 hover:text-white' 
+                        : 'hover:bg-slate-700 text-slate-500 hover:text-red-400'
+                      }
+                    `}
+                    title="Delete"
+                  >
+                    <Icons.Trash className="w-4 h-4" />
+                  </button>
+                </div>
+             ))}
+             {sessions.length === 0 && (
+                <div className="text-center py-10 text-xs text-slate-600">
+                    No history yet
+                </div>
+             )}
+          </div>
+        </div>
+
         {/* Draw.io Canvas Area */}
         <div className="flex-1 relative bg-slate-100 h-full flex flex-col">
           <div className="flex-1 m-2 rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-white">
             <DrawIoEmbed 
               ref={drawioRef}
+              autosave={true}
+              onAutoSave={(data) => {
+                if (currentSessionId && isDrawIoReady && !isExportingForChatRef.current) {
+                   // Prefer using the XML directly from the autosave event if available
+                   if (data && typeof data === 'object' && 'xml' in data) {
+                       const xmlContent = (data as any).xml;
+                       setSessions(prev => prev.map(s => {
+                           if (s.id === currentSessionId) {
+                               return { ...s, drawIoXml: xmlContent };
+                           }
+                           return s;
+                       }));
+                   } else {
+                       // Fallback to export if no XML provided in event
+                        isAutosaveRef.current = true;
+                        drawioRef.current?.exportDiagram({ format: 'xml' as any });
+                    }
+                }
+              }}
+              onLoad={() => setIsDrawIoReady(true)}
               onExport={(data) => setLastExportedData({ data: data.data, timestamp: Date.now() })}
               urlParameters={{
                 ui: 'atlas', // More modern UI theme for draw.io
