@@ -241,22 +241,26 @@ export default function Home() {
         message: apiContent
       });
 
-      const agentMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'agent',
-        content: chatRes.data.content,
-        timestamp: Date.now()
-      };
-      setMessages(prev => [...prev, agentMsg]);
+      const { type, content } = chatRes.data;
 
-      // Try to load content as Draw.io XML if it looks like XML
-      if (drawioRef.current && chatRes.data.content && (chatRes.data.content.includes('<mxGraphModel') || chatRes.data.content.includes('<mxfile'))) {
-        try {
-          drawioRef.current.load({
-            xml: chatRes.data.content
-          });
-        } catch (e) {
-          console.error('Failed to load diagram:', e);
+      // Handle response based on type
+      if (type === 'user') {
+        const agentMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'agent',
+          content: content,
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, agentMsg]);
+      } else if (type === 'drawio') {
+        if (drawioRef.current) {
+          try {
+            drawioRef.current.load({
+              xml: content
+            });
+          } catch (e) {
+            console.error('Failed to load diagram:', e);
+          }
         }
       }
 
@@ -312,11 +316,16 @@ export default function Home() {
   }, [lastExportedData]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSendMessage();
     }
   };
+
+  const quickActions = [
+    { label: '绘制h5端登录流程图', text: '请帮我绘制一个H5端的登录流程图，包含用户输入手机号、获取验证码、验证登录等步骤。' },
+    { label: '绘制电商购物流程图', text: '请帮我绘制一个电商购物流程图，包含商品浏览、加入购物车、下单、支付、发货等环节。' }
+  ];
 
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden bg-slate-50 text-slate-900 font-sans">
@@ -467,6 +476,21 @@ export default function Home() {
 
           {/* Input Area */}
           <div className="p-4 bg-white border-t border-slate-100 shrink-0">
+            {/* Quick Actions - Only show when chat is empty (just greeting) */}
+            {messages.length <= 1 && (
+              <div className="flex flex-wrap gap-2 mb-3 px-1 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                {quickActions.map((action, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setInputValue(action.text)}
+                    className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors border border-indigo-100 font-medium"
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Context Toolbar */}
             <div className="flex items-center gap-2 mb-2 px-1">
                 <button
@@ -482,6 +506,9 @@ export default function Home() {
                     <Icons.Layers className={`w-3.5 h-3.5 ${useHistoryContext ? 'text-indigo-500' : 'text-slate-400'}`} />
                     携带当前画布
                 </button>
+                <span className="text-[10px] text-slate-400 ml-auto">
+                    Press <kbd className="font-sans px-1 py-0.5 bg-slate-100 border border-slate-200 rounded text-slate-500">Ctrl</kbd> + <kbd className="font-sans px-1 py-0.5 bg-slate-100 border border-slate-200 rounded text-slate-500">Enter</kbd> to send
+                </span>
             </div>
             <div className="relative flex items-end gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:bg-white transition-all">
               <textarea
@@ -490,9 +517,9 @@ export default function Home() {
                 onKeyDown={handleKeyDown}
                 placeholder={isSending ? "服务端正在思考中，请稍候..." : "输入您的问题..."}
                 disabled={isSending}
-                className="flex-1 px-3 py-2 bg-transparent border-none focus:ring-0 text-sm text-slate-800 placeholder:text-slate-400 resize-none max-h-32 min-h-[44px]"
-                rows={1}
-                style={{ height: 'auto', minHeight: '44px' }}
+                className="flex-1 px-3 py-2 bg-transparent border-none focus:ring-0 text-sm text-slate-800 placeholder:text-slate-400 resize-none max-h-60 min-h-[80px]"
+                rows={3}
+                style={{ height: 'auto', minHeight: '80px' }}
               />
               <div className="flex gap-1 mb-0.5 shrink-0">
                   <button

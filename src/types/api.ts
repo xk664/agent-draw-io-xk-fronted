@@ -28,4 +28,5 @@ export interface ChatRequestDTO {
 
 export interface ChatResponseDTO {
     content: string;
+    type: string;
 }
