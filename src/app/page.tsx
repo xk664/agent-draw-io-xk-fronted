@@ -359,6 +359,45 @@ export default function Home() {
      finalizeNewChat();
   };
 
+  const handleRestartSession = async () => {
+    if (!selectedAgentId || !currentUser) return;
+
+    if (!currentSessionId) {
+      finalizeNewChat();
+      return;
+    }
+    
+    try {
+        const res = await agentApi.createSession(selectedAgentId, currentUser);
+        const newBackendId = res.data.sessionId;
+        
+        const initialMsg: Message = {
+          id: Date.now().toString(),
+          role: 'agent',
+          content: '你好！我是你的智能架构助手。请选择一个智能体开始对话。',
+          timestamp: Date.now()
+        };
+
+        setSessionId(newBackendId);
+        setMessages([initialMsg]);
+        setInputValue('');
+
+        setSessions(prev => prev.map(session => {
+          if (session.id === currentSessionId) {
+            return {
+              ...session,
+              backendSessionId: newBackendId,
+              messages: [initialMsg],
+              lastModified: Date.now()
+            };
+          }
+          return session;
+        }));
+    } catch (error) {
+        console.error('Failed to restart session:', error);
+    }
+  };
+
   const performSendMessage = async (displayContent: string, apiContent: string) => {
     if (!selectedAgentId) {
       setMessages(prev => [...prev, {
@@ -812,9 +851,9 @@ export default function Home() {
                     {isSending ? <Icons.Loader className="w-4 h-4" /> : <Icons.Send className="w-4 h-4" />}
                   </button>
                   <button
-                    onClick={handleNewChat}
+                    onClick={handleRestartSession}
                     className="p-2.5 rounded-lg bg-white text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all duration-200 border border-slate-200 hover:border-indigo-100 shadow-sm"
-                    title="New Chat"
+                    title="Restart Session"
                   >
                     <Icons.Plus className="w-4 h-4" />
                   </button>
